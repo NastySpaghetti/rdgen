@@ -58,6 +58,7 @@ jobs:
       configuration: Release
       platform: x64
       target_version: Windows10
+      zip_url: ${{ inputs.zip_url }} # FIX: Passing the zip_url to the reusable workflow
     secrets: inherit
     strategy:
       fail-fast: false
@@ -98,16 +99,25 @@ jobs:
           pwd = os.environ.get('RDGEN_PASS')
           auth_data = (user, pwd) if user and pwd else None
 
+          # Safely parse the zip_url JSON
+          try:
+              zip_input = json.loads('${{ inputs.zip_url }}')
+              base_url = zip_input.get('url', '')
+              filename = zip_input.get('file', '')
+          except Exception as e:
+              print(f"Error parsing zip_url input: {e}")
+              exit(1)
+
           for attempt in range(5):
             try:
               print(f"Downloading secrets (Attempt {attempt + 1})...")
-              # Added auth=auth_data to requests.get
-              r = requests.get('${{ fromJson(inputs.zip_url).url }}/get_zip?filename=${{ fromJson(inputs.zip_url).file }}', auth=auth_data, timeout=60)
+              # Re-assembled URL using parsed JSON components
+              r = requests.get(f"{base_url}/get_zip?filename={filename}", auth=auth_data, timeout=60)
               r.raise_for_status()
               break
             except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
               if attempt < 4:
-                print(f"Timeout/Error occurred: {e}. Retrying in 5 seconds...")
+                print(f"Timeout/Error occurred: {e}. Retrying in 30 seconds...")
                 time.sleep(30)
               else:
                 print("Max retries reached. Failing.")
@@ -274,6 +284,7 @@ jobs:
           sed -i -e "s|launchUrl(Uri.parse('https://rustdesk.com'));|launchUrl(Uri.parse('${{ env.urlLink }}'));|" ./flutter/lib/common.dart
           sed -i -e "s|launchUrlString('https://rustdesk.com');|launchUrlString('${{ env.urlLink }}');|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
           sed -i -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ env.urlLink }}/privacy.html')|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          # 2026 update: Ensuring privacy links are also updated for mobile layouts
           sed -i -e "s|const url = 'https://rustdesk.com/';|const url = '${{ env.urlLink }}';|" ./flutter/lib/mobile/pages/settings_page.dart
           sed -i -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ env.urlLink }}/privacy.html')|" ./flutter/lib/mobile/pages/settings_page.dart
           sed -i -e "s|https://rustdesk.com/privacy.html|${{ env.urlLink }}/privacy.html|" ./flutter/lib/desktop/pages/install_page.dart
@@ -295,8 +306,6 @@ jobs:
           sed -i -e 's|rs-ny.rustdesk.com|${{ env.server }}|' ./libs/hbb_common/src/config.rs
           sed -i -e 's|OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=|${{ env.key }}|' ./libs/hbb_common/src/config.rs
           sed -i -e 's|https://admin.rustdesk.com|${{ env.apiServer }}|' ./src/common.rs
-          # ./flutter/pubspec.yaml
-          #sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
 
       - name: allow custom.txt
         continue-on-error: true
@@ -470,16 +479,6 @@ jobs:
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
           sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
-      # - name: run as admin
-      #   continue-on-error: true
-      #   if: ${{ env.runasadmin == 'true' }}
-      #   shell: bash
-      #   run: |
-      #     sed -i '/<\/compatibility>/a \
-      #           <security> \
-      #             <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/> \
-      #           </security>' ./flutter/windows/runner/runner.exe.manifest
-
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
@@ -496,7 +495,6 @@ jobs:
         continue-on-error: true
         run: |
           cd ./flutter
-          #flutter pub upgrade win32
           flutter pub get
           flutter pub run flutter_launcher_icons
           cd ..
@@ -514,24 +512,20 @@ jobs:
 
       - name: Build rustdesk
         run: |
-          # Windows: build RustDesk
           python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
  
-          # Download usbmmidd_v2.zip and extract it to ./rustdesk
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath . -Force
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
           mv -Force .\usbmmidd_v2 ./rustdesk   
 
-          # Download printer driver files and extract them to ./rustdesk
           try {
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
 
-            # Check and move the files
             $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
             $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
             $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
@@ -543,13 +537,9 @@ jobs:
                 mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
                 Expand-Archive printer_driver_adapter.zip -DestinationPath .
                 mv -Force .\printer_driver_adapter.dll ./rustdesk
-            } elseif ($checksum_driver -ne $downloadsum_driver.Hash) {
-                Write-Output "rustdesk_printer_driver_v4-1.4, checksums do not match, ignore the file."
-            } else {
-                Write-Output "printer_driver_adapter.dll, checksums do not match, ignore the file."
             }
           } catch {
-              Write-Host "Ingore the printer driver error."
+              Write-Host "Ignore the printer driver error."
           }
 
       - name: icon stuff
@@ -571,8 +561,6 @@ jobs:
           Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -Headers $headers -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
 
       - name: find Runner.res
-        # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
-        # Runner.rc does not contain actual version, but Runner.res does
         continue-on-error: true
         shell: bash
         run: |
@@ -582,8 +570,6 @@ jobs:
           else
             echo "Runner.res: $runner_res";
             cp $runner_res ./libs/portable/Runner.res;
-            echo "list ./libs/portable/Runner.res";
-            ls -l ./libs/portable/Runner.res;
           fi
 
       - name: Download RustDeskTempTopMostWindow artifacts
@@ -620,7 +606,6 @@ jobs:
               -m 900 \
               "${{ secrets.SIGN_BASE_URL }}/sign/" -o ./rustdesk/signed_files.zip
           else
-            echo "Signing skipped - signing URL or API key not configured"
             cp ./rustdesk/unsigned_files.zip ./rustdesk/signed_files.zip
           fi
 
@@ -665,7 +650,6 @@ jobs:
           msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
           cp ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk-latest.msi
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk.msi
-          sha256sum ../../SignOutput/rustdesk.msi
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
@@ -694,7 +678,6 @@ jobs:
               -m 900 \
               "${{ secrets.SIGN_BASE_URL }}/sign/" -o ./SignOutput/signed_files.zip
           else
-            echo "Signing skipped - signing URL or API key not configured"
             cp ./SignOutput/unsigned_files.zip ./SignOutput/signed_files.zip
           fi
 
@@ -706,13 +689,9 @@ jobs:
           Remove-Item ./SignOutput/unsigned_files.zip
           Remove-Item ./SignOutput/signed_files.zip
 
-      - name: rename rustdesk.exe to filename.exe
+      - name: rename files
         run: |
           mv ./SignOutput/rustdesk.exe "./SignOutput/${{ env.filename }}.exe" || echo "rustdesk"
-
-      - name: rename rustdesk.msi to filename.msi
-        continue-on-error: true
-        run: |
           mv ./SignOutput/rustdesk.msi "./SignOutput/${{ env.filename }}.msi" || echo "rustdesk"
 
       - name: send file to rdgen server
@@ -750,7 +729,7 @@ jobs:
           username: ${{ env.RDGEN_USER }}
           password: ${{ env.RDGEN_PASS }}
 
-      - name: failed
+      - name: cancelled
         if: cancelled()
         uses: fjogeleit/http-request-action@v1
         with:
