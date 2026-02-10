@@ -155,7 +155,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: Checkout source code
         if: ${{ env.VERSION != 'master' }}
         uses: actions/checkout@v4
@@ -307,7 +309,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "10% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: Install flutter
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
         with:
@@ -345,7 +349,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "15% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
@@ -358,7 +364,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "20% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
@@ -464,7 +472,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "25% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: replace flutter icons
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
@@ -640,7 +650,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: zip exe and msi
         continue-on-error: true
         shell: pwsh
@@ -682,8 +694,17 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -F "file=@./SignOutput/${{ inputs.filename }}.exe" \
+            -F "uuid=${{ inputs.uuid }}" \
+            ${{ secrets.GENURL }}/save_custom_client
+      
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -F "file=@./SignOutput/${{ inputs.filename }}.msi" \
+            -F "uuid=${{ inputs.uuid }}" \
+            ${{ secrets.GENURL }}/save_custom_client || true
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -697,6 +718,8 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
 
@@ -706,6 +729,8 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
 
@@ -715,5 +740,7 @@ jobs:
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
