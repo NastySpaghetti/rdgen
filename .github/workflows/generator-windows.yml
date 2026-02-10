@@ -14,6 +14,7 @@ on:
         default: ''
         type: string
 
+
 env:
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
   RUST_VERSION: "1.75" # sciter failed on m1 with 1.78 because of https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
@@ -38,6 +39,7 @@ env:
   UPLOAD_ARTIFACT: 'true'
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
   STATUS_URL: "${{ secrets.GENURL }}/updategh"
+
 
 jobs:
   generate-bridge:
@@ -65,18 +67,26 @@ jobs:
       fail-fast: false
       matrix:
         job:
+          # - { target: i686-pc-windows-msvc        , os: windows-2022                  }
+          # - { target: x86_64-pc-windows-gnu       , os: windows-2022                  }
           - {
               target: x86_64-pc-windows-msvc,
               os: windows-2022,
               arch: x86_64,
               vcpkg-triplet: x64-windows-static,
             }
+          # - { target: aarch64-pc-windows-msvc, os: windows-2022, arch: aarch64 }
     steps:
       - name: install python deps
         run: |
           pip install requests pyzipper
       - name: Download, Decrypt, and Mask
         shell: python
+        env:
+          # Passing inputs via env is safer against shell injection/formatting errors
+          ZIP_URL_RAW: ${{ inputs.zip_url }}
+          RDGEN_USER: ${{ secrets.RDGEN_USER }}
+          RDGEN_PASS: ${{ secrets.RDGEN_PASS }}
         run: |
           import requests
           import pyzipper
@@ -85,14 +95,20 @@ jobs:
           import json
           import time
 
-          # Parse zip_url input
-          zip_data = json.loads('${{ inputs.zip_url }}')
-          url = f"{zip_data['url']}/get_zip?filename={zip_data['file']}"
+          # Parse variables from environment
+          zip_input = json.loads(os.environ['ZIP_URL_RAW'])
+          url = f"{zip_input['url']}/get_zip?filename={zip_input['file']}"
+          
+          # Setup basic auth for the request
+          auth_user = os.environ.get('RDGEN_USER')
+          auth_pass = os.environ.get('RDGEN_PASS')
+          auth = (auth_user, auth_pass) if auth_user and auth_pass else None
 
           for attempt in range(5):
             try:
               print(f"Downloading secrets (Attempt {attempt + 1})...")
-              r = requests.get(url, timeout=60)
+              # Added auth=auth here to fix the 401 Unauthorized error
+              r = requests.get(url, auth=auth, timeout=60)
               r.raise_for_status()
               break
             except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
@@ -136,17 +152,17 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
       
-      - name: Set rdgen value (true)
+      - name: Set rdgen value
         if: ${{ env.rdgen == 'true' }}
         run: |
           echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $env:GITHUB_ENV
 
-      - name: Set rdgen value (false)
+      - name: Set rdgen value
         if: ${{ env.rdgen == 'false' }}
         run: |
           echo "STATUS_URL=${{ env.apiServer }}/api/updategh" >> $env:GITHUB_ENV
 
-      - name: Report Status (5%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -165,7 +181,7 @@ jobs:
           ref: refs/tags/${{ env.VERSION }}
           submodules: recursive
 
-      - name: Checkout source code (master)
+      - name: Checkout source code
         if: ${{ env.VERSION == 'master' }}
         uses: actions/checkout@v4
         with:
@@ -181,8 +197,7 @@ jobs:
       - name: Install ImageMagick on Windows
         run: |
           choco install -y imagemagick.app --no-progress
-          $MagickPath = Get-ChildItem -Path "${env:ProgramFiles}" -Filter "ImageMagick*" | Select-Object -First 1
-          if ($MagickPath) { $MagickPath.FullName >> $env:GITHUB_PATH }
+          Get-ChildItem -Path "${env:ProgramFiles}" | % { $_.FullName } | Select-String -Pattern "[\/\\]ImageMagick[^\/\\]*$" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
 
       - name: fix flutter_gpu_texture_renderer (fixed in master rustdesk)
         shell: bash
@@ -195,19 +210,25 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          # ./Cargo.toml
           sed -i -e 's|description = "RustDesk Remote Desktop"|description = "${{ env.appname }}"|' ./Cargo.toml
           sed -i -e 's|ProductName = "RustDesk"|ProductName = "${{ env.appname }}"|' ./Cargo.toml
           sed -i -e 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "${{ env.appname }}"|' ./Cargo.toml
           sed -i -e 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "${{ env.appname }}.exe"|' ./Cargo.toml
+          # ./libs/portable/Cargo.toml
           sed -i -e 's|description = "RustDesk Remote Desktop"|description = "${{ env.appname }}"|' ./libs/portable/Cargo.toml
           sed -i -e 's|ProductName = "RustDesk"|ProductName = "${{ env.appname }}"|' ./libs/portable/Cargo.toml
           sed -i -e 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "${{ env.appname }}"|' ./libs/portable/Cargo.toml
           sed -i -e 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "${{ env.appname }}.exe"|' ./libs/portable/Cargo.toml
+          # ./libs/portable/src/main.rs
           sed -i -e 's|const APP_PREFIX: \&str = "rustdesk";|const APP_PREFIX: \&str = "${{ env.appname }}";|' ./libs/portable/src/main.rs
+          # ./flutter/windows/runner/Runner.rc
           sed -i -e 's|"RustDesk Remote Desktop"|"${{ env.appname }}"|' ./flutter/windows/runner/Runner.rc
           sed -i -e 's|VALUE "InternalName", "rustdesk" "\0"|VALUE "InternalName", "${{ env.appname }}" "\0"|' ./flutter/windows/runner/Runner.rc
           sed -i -e 's|"rustdesk.exe"|"${{ env.filename }}.exe"|' ./flutter/windows/runner/Runner.rc
           sed -i -e 's|"RustDesk"|"${{ env.appname }}"|' ./flutter/windows/runner/Runner.rc
+          # ./src/lang/en.rs
+          # change powered by rustdek to powered by compname
           if [ ! -z "${{ env.compname }}" ]; then
             find ./src/lang -name "*.rs" -exec sed -i '/powered_by_me/s|RustDesk|${{ env.compname }}|g' {} \;
           fi
@@ -219,6 +240,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          #./src/platform/windows.rs
           sed -i -e 's|reg add {}|reg add \\\"{}\\\"|' ./src/platform/windows.rs
           sed -i -e 's|reg add HKEY_CLASSES_ROOT\\\\.{ext} /f|reg add \\\"HKEY_CLASSES_ROOT\\\\.{ext}\\\" /f|' ./src/platform/windows.rs
           sed -i -e 's|reg add HKEY_CLASSES_ROOT\\\\.{ext}\\\\DefaultIcon /f|reg add \\\"HKEY_CLASSES_ROOT\\\\.{ext}\\\\DefaultIcon\\\" /f|' ./src/platform/windows.rs
@@ -283,6 +305,7 @@ jobs:
         run: |
           Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/allowCustom.py -OutFile allowCustom.py
           python allowCustom.py
+          # Remove Setup Server Tip
           Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
           git apply removeSetupServerTip.diff
 
@@ -291,7 +314,7 @@ jobs:
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Report Status (10%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -303,7 +326,7 @@ jobs:
           password: ${{ secrets.RDGEN_PASS }}
           
       - name: Install flutter
-        uses: subosito/flutter-action@v2.12.0 
+        uses: subosito/flutter-action@v2.12.0
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -314,16 +337,13 @@ jobs:
           flutter precache --windows
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          $EngineDir = "C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release"
-          if (!(Test-Path $EngineDir)) { mkdir $EngineDir }
-          mv -Force windows-x64-release/* $EngineDir
+          mv -Force windows-x64-release/* C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
 
       - name: Patch flutter
         shell: bash
         run: |
-          FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))
-          cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $FLUTTER_ROOT
-          cd $FLUTTER_ROOT
+          cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
+          cd $(dirname $(dirname $(which flutter)))
           [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
 
       - name: Install Rust toolchain
@@ -333,7 +353,7 @@ jobs:
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
-      - name: Report Status (15%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -348,7 +368,7 @@ jobs:
         with:
           prefix-key: ${{ matrix.job.os }}
         
-      - name: Report Status (20%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -445,7 +465,7 @@ jobs:
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
           sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
-      - name: Report Status (25%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -465,7 +485,7 @@ jobs:
           flutter pub run flutter_launcher_icons
           cd ..
 
-      - name: Report Status (50%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -478,6 +498,7 @@ jobs:
         run: |
           python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
+ 
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath . -Force
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse
@@ -501,7 +522,7 @@ jobs:
                 mv -Force .\printer_driver_adapter.dll ./rustdesk
             }
           } catch {
-              Write-Host "Ignore the printer driver error."
+              Write-Host "Ignore printer driver error."
           }
 
       - name: icon stuff
@@ -521,6 +542,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          # Ensuring we pick the correct first architecture resource found
           runner_res=$(find . -name "Runner.res" | head -n 1);
           if [ -n "$runner_res" ]; then
             cp $runner_res ./libs/portable/Runner.res;
@@ -533,7 +555,7 @@ jobs:
           name: topmostwindow-artifacts
           path: "./rustdesk"
 
-      - name: Report Status (70%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -604,7 +626,7 @@ jobs:
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk.msi
           sha256sum ../../SignOutput/rustdesk.msi
 
-      - name: Report Status (85%)
+      - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
         with:
@@ -642,7 +664,7 @@ jobs:
           Remove-Item ./SignOutput/unsigned_files.zip
           Remove-Item ./SignOutput/signed_files.zip
 
-      - name: rename artifacts to filename
+      - name: Final rename to filename
         run: |
           mv ./SignOutput/rustdesk.exe "./SignOutput/${{ env.filename }}.exe" -ErrorAction SilentlyContinue
           mv ./SignOutput/rustdesk.msi "./SignOutput/${{ env.filename }}.msi" -ErrorAction SilentlyContinue
@@ -670,7 +692,7 @@ jobs:
           curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
           curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" ${{ env.apiServer }}/api/save_custom_client || true
 
-      - name: Report Status (Success)
+      - name: Final Report Success
         uses: fjogeleit/http-request-action@v1
         if: success()
         with:
@@ -681,7 +703,7 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
 
-      - name: failed report
+      - name: Final Report Failure
         if: failure()
         uses: fjogeleit/http-request-action@v1
         with:
@@ -690,9 +712,9 @@ jobs:
           username: ${{ secrets.RDGEN_USER }}
           password: ${{ secrets.RDGEN_PASS }}
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
+          data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, check logs"}'
 
-      - name: cancelled report
+      - name: Final Report Cancelled
         if: cancelled()
         uses: fjogeleit/http-request-action@v1
         with:
@@ -701,4 +723,4 @@ jobs:
           username: ${{ secrets.RDGEN_USER }}
           password: ${{ secrets.RDGEN_PASS }}
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
+          data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled"}'
