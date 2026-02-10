@@ -137,7 +137,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: Checkout source code
         if: ${{ env.VERSION != 'master' }}
         uses: actions/checkout@v4
@@ -256,7 +258,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "10% complete"}'   
-          
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+
       - name: Install build runtime
         run: |
           brew install llvm create-dmg
@@ -497,6 +501,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "20% complete"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: Restore bridge files
         uses: actions/download-artifact@master
@@ -533,6 +539,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "25% complete"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: Create MacOS directory structure
         run: |
@@ -638,7 +646,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "85% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: Sign macOS app bundle
         if: env.MACOS_P12_BASE64 != ''
         run: |
@@ -748,11 +758,10 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST \
-            -H "Content-Type: multipart/form-data" \
-            -H "Authorization: Bearer ${{ env.token }}" \
-            -F "file=@$GITHUB_WORKSPACE/${{ env.filename }}-${{ matrix.job.arch }}.dmg" \
-            -F "uuid=${{ env.uuid }}" \
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -F "file=@$GITHUB_WORKSPACE/${{ inputs.filename }}-${{ matrix.job.arch }}.dmg" \
+            -F "uuid=${{ inputs.uuid }}" \
             "${{ secrets.GENURL }}/save_custom_client"
         
 
@@ -773,7 +782,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: failed
         if: failure()
         uses: fjogeleit/http-request-action@v1
@@ -782,6 +793,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: failed
         if: cancelled()
@@ -791,3 +804,5 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
