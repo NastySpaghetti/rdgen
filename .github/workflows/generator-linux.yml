@@ -140,6 +140,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: Maximize build space
         run: |
@@ -209,6 +211,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "15% complete"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: Restore bridge files
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
@@ -382,6 +386,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "65% complete"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - uses: rustdesk-org/run-on-arch-action@amd64-support
         name: Build rustdesk
@@ -607,11 +613,34 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-suse-${{ matrix.job.arch }}.rpm" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
-
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -H "X-Rdgen-Token: ${{ fromJson(inputs.extras).token }}" \
+            -F "file=@./output/${{ inputs.filename }}-${{ matrix.job.arch }}.deb" \
+            -F "uuid=${{ inputs.uuid }}" \
+            "${{ secrets.GENURL }}/save_custom_client"
+      
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -H "X-Rdgen-Token: ${{ fromJson(inputs.extras).token }}" \
+            -F "file=@./output/${{ inputs.filename }}-${{ matrix.job.arch }}.rpm" \
+            -F "uuid=${{ inputs.uuid }}" \
+            "${{ secrets.GENURL }}/save_custom_client"
+      
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -H "X-Rdgen-Token: ${{ fromJson(inputs.extras).token }}" \
+            -F "file=@./output/${{ inputs.filename }}-suse-${{ matrix.job.arch }}.rpm" \
+            -F "uuid=${{ inputs.uuid }}" \
+            "${{ secrets.GENURL }}/save_custom_client"
+      
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -H "X-Rdgen-Token: ${{ fromJson(inputs.extras).token }}" \
+            -F "file=@./output/${{ inputs.filename }}-${{ matrix.job.arch }}.pkg.tar.zst" \
+            -F "uuid=${{ inputs.uuid }}" \
+            "${{ secrets.GENURL }}/save_custom_client" || true
+            
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
         shell: bash
@@ -636,6 +665,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Finished ${{ matrix.job.arch }}"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: failed
         if: failure()
@@ -645,6 +676,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: failed
         if: cancelled()
@@ -654,7 +687,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
   build-appimage:
     name: Build appimage ${{ matrix.job.target }}
     needs: [build-rustdesk-linux]
