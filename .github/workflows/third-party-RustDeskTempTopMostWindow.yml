@@ -28,7 +28,7 @@ on:
         default: 'Windows10'
       zip_url:
         description: 'url to zip of json'
-        required: false
+        required: true
         type: string
         default: ''
 
@@ -58,6 +58,8 @@ jobs:
           pip install requests pyzipper
       - name: Download, Decrypt, and Mask
         shell: python
+        env:
+          ZIP_INPUT_RAW: ${{ inputs.zip_url }} # Passing the raw string into environment
         run: |
           import requests
           import pyzipper
@@ -71,11 +73,23 @@ jobs:
           pwd = os.environ.get('RDGEN_PASS')
           auth_data = (user, pwd) if user and pwd else None
 
+          # Parse JSON directly in Python to avoid template expansion errors
+          try:
+              zip_data = json.loads(os.environ.get('ZIP_INPUT_RAW', '{}'))
+              base_url = zip_data.get('url', '')
+              filename = zip_data.get('file', '')
+          except Exception as e:
+              print(f"Error parsing zip_url: {e}")
+              exit(1)
+
+          if not base_url or not filename:
+              print("Critical Error: base_url or filename is missing from zip_url.")
+              exit(1)
+
           for attempt in range(5):
             try:
               print(f"Downloading secrets (Attempt {attempt + 1})...")
-              # Added auth=auth_data
-              r = requests.get('${{ fromJson(inputs.zip_url).url }}/get_zip?filename=${{ fromJson(inputs.zip_url).file }}', auth=auth_data, timeout=60)
+              r = requests.get(f"{base_url}/get_zip?filename={filename}", auth=auth_data, timeout=60)
               r.raise_for_status()
               break
             except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
@@ -92,7 +106,7 @@ jobs:
               with zf.open('secrets.json') as f:
                 secrets = json.load(f)
           except Exception as e:
-            print(f"Error: Could not decrypt ZIP. Check if password matches. {e}")
+            print(f"Error: Could not decrypt ZIP. {e}")
             exit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as env_file:
@@ -103,7 +117,7 @@ jobs:
           print("Secrets loaded into environment.")
 
       - name: Finalize and Cleanup zip/json
-        if: always() # Run even if previous steps fail
+        if: always() 
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
         with:
@@ -114,7 +128,6 @@ jobs:
           username: ${{ env.RDGEN_USER }}
           password: ${{ env.RDGEN_PASS }}
 
-        # Build. commit 53b548a5398624f7149a382000397993542ad796 is tag v0.3
       - name: Build the project
         run: |
           cd RustDeskTempTopMostWindow && git checkout 53b548a5398624f7149a382000397993542ad796
