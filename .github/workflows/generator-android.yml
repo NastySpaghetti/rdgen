@@ -165,6 +165,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "5% complete"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: Install dependencies
         run: |
@@ -449,7 +451,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "35% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
       - name: replace flutter icons
         if: ${{ env.iconlink_url != 'false' }}
         run: |
@@ -504,7 +507,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "45% complete"}'
-
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+          
       - name: icons
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
@@ -583,7 +588,9 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "75% complete"}'
-      
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
+
       - uses: r0adkll/sign-android-release@v1
         name: Sign app APK
         continue-on-error: true
@@ -603,7 +610,11 @@ jobs:
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}.apk" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl -i -u "${{ secrets.RDGEN_USER }}:${{ secrets.RDGEN_PASS }}" \
+            -X POST -H "Content-Type: multipart/form-data" \
+            -F "file=@./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk" \
+            -F "uuid=${{ inputs.uuid }}" \
+            "${{ secrets.GENURL }}/save_custom_client"
 
       - name: send file to api server
         if: ${{ env.rdgen == 'false' }}
@@ -619,6 +630,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Success"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: failed
         if: failure()
@@ -628,6 +641,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation failed, try again"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
       - name: failed
         if: cancelled()
@@ -637,3 +652,5 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "Generation cancelled, try again"}'
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
