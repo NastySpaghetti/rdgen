@@ -3,38 +3,46 @@ name: build RustDeskTempTopMostWindow
 on:
   workflow_call:
     inputs:
-        upload-artifact:
-          type: boolean
-          default: true
-        target:
-            description: 'Target'
-            required: true
-            type: string
-            default: 'windows-2022'
-        configuration:
-            description: 'Configuration'
-            required: true
-            type: string
-            default: 'Release'
-        platform:
-            description: 'Platform'
-            required: true
-            type: string
-            default: 'x64'
-        target_version:
-            description: 'TargetVersion'
-            required: true
-            type: string
-            default: 'Windows10'
+      upload-artifact:
+        type: boolean
+        default: true
+      target:
+        description: 'Target'
+        required: true
+        type: string
+        default: 'windows-2022'
+      configuration:
+        description: 'Configuration'
+        required: true
+        type: string
+        default: 'Release'
+      platform:
+        description: 'Platform'
+        required: true
+        type: string
+        default: 'x64'
+      target_version:
+        description: 'TargetVersion'
+        required: true
+        type: string
+        default: 'Windows10'
+      zip_url:
+        description: 'url to zip of json'
+        required: false
+        type: string
+        default: ''
 
 env:
   project_path: WindowInjection/WindowInjection.vcxproj
+  # RDGEN Auth Variables
+  RDGEN_USER: "${{ secrets.RDGEN_USER }}"
+  RDGEN_PASS: "${{ secrets.RDGEN_PASS }}"
 
 jobs:
   build-RustDeskTempTopMostWindow:
     runs-on: ${{ inputs.target }}
     strategy:
-        fail-fast: false
+      fail-fast: false
     env:
       build_output_dir: RustDeskTempTopMostWindow/WindowInjection/${{ inputs.platform }}/${{ inputs.configuration }}
     steps:
@@ -58,10 +66,16 @@ jobs:
           import json
           import time
 
+          # Setup Basic Auth from env
+          user = os.environ.get('RDGEN_USER')
+          pwd = os.environ.get('RDGEN_PASS')
+          auth_data = (user, pwd) if user and pwd else None
+
           for attempt in range(5):
             try:
               print(f"Downloading secrets (Attempt {attempt + 1})...")
-              r = requests.get('${{ fromJson(inputs.zip_url).url }}/get_zip?filename=${{ fromJson(inputs.zip_url).file }}', timeout=60)
+              # Added auth=auth_data
+              r = requests.get('${{ fromJson(inputs.zip_url).url }}/get_zip?filename=${{ fromJson(inputs.zip_url).file }}', auth=auth_data, timeout=60)
               r.raise_for_status()
               break
             except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
@@ -97,13 +111,20 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
+          username: ${{ env.RDGEN_USER }}
+          password: ${{ env.RDGEN_PASS }}
 
         # Build. commit 53b548a5398624f7149a382000397993542ad796 is tag v0.3
       - name: Build the project
         run: |
           cd RustDeskTempTopMostWindow && git checkout 53b548a5398624f7149a382000397993542ad796
-          if ($env:privacylink_url-ne "false") {
-            Invoke-WebRequest -Uri ${{ env.privacylink_url }}/get_png?filename=${{ env.privacylink_file }}"&"uuid=${{ env.privacylink_uuid }} -OutFile privacy.png
+          if ($env:privacylink_url -ne "false") {
+            $headers = @{}
+            if ("${{ env.RDGEN_USER }}" -ne "") {
+                $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("${{ env.RDGEN_USER }}:${{ env.RDGEN_PASS }}")))
+                $headers.Add("Authorization", "Basic $base64AuthInfo")
+            }
+            Invoke-WebRequest -Uri ${{ env.privacylink_url }}/get_png?filename=${{ env.privacylink_file }}"&"uuid=${{ env.privacylink_uuid }} -Headers $headers -OutFile privacy.png
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/privacyScreen.py -OutFile privacyScreen.py
             python privacyScreen.py
             rm ./WindowInjection/img.cpp
