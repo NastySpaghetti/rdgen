@@ -405,8 +405,13 @@ jobs:
       - name: magick stuff
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
+        env:
+          RDGEN_USER: ${{ secrets.RDGEN_USER }}
+          RDGEN_PASS: ${{ secrets.RDGEN_PASS }}
         run: |
-          Invoke-WebRequest -Uri ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }} -OutFile ./res/iconx.png 
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${env:RDGEN_USER}:${env:RDGEN_PASS}"))
+          $headers = @{ Authorization = "Basic $auth" }
+          Invoke-WebRequest -Uri ${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}"&"uuid=${{ env.iconlink_uuid }} -OutFile ./res/iconx.png -Headers $headers
           mv ./res/icon.ico ./res/icon.ico.bak
           mv ./res/icon.png ./res/icon.png.bak
           mv ./res/tray-icon.ico ./res/tray-icon.ico.bak
@@ -554,8 +559,13 @@ jobs:
       - name: logo stuff
         if: ${{ env.logolink_url != 'false' }}
         continue-on-error: true
+        env:
+          RDGEN_USER: ${{ secrets.RDGEN_USER }}
+          RDGEN_PASS: ${{ secrets.RDGEN_PASS }}
         run: |
-          Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${env:RDGEN_USER}:${env:RDGEN_PASS}"))
+          $headers = @{ Authorization = "Basic $auth" }
+          Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png -Headers $headers
 
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
