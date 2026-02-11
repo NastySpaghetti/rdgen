@@ -765,9 +765,8 @@ jobs:
           # Print directory contents for debugging
           echo "Directory contents:"
           ls -la
-          # Find the actual .app bundle
+          # Only rename if RustDesk.app exists. If it was already renamed in the signing step, this will skip.
           if [ -d "RustDesk.app" ]; then
-            # First rename the app if it's still called RustDesk.app
             mv "RustDesk.app" "${{ env.appname }}.app"
           fi
           if [ ! -d "${{ env.appname }}.app" ]; then
@@ -795,7 +794,7 @@ jobs:
           ls -la
             
           # Find the DMG file dynamically
-          DMG_FILE=$(find . -name "${{ env.appname }}-${{ matrix.job.arch }}.dmg")
+          DMG_FILE=$(find . -maxdepth 1 -name "${{ env.appname }}-${{ matrix.job.arch }}.dmg")
             
           if [ -n "$DMG_FILE" ]; then
             echo "Found DMG file: $DMG_FILE"
