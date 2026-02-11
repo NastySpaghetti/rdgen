@@ -3,46 +3,38 @@ name: build RustDeskTempTopMostWindow
 on:
   workflow_call:
     inputs:
-      upload-artifact:
-        type: boolean
-        default: true
-      target:
-        description: 'Target'
-        required: true
-        type: string
-        default: 'windows-2022'
-      configuration:
-        description: 'Configuration'
-        required: true
-        type: string
-        default: 'Release'
-      platform:
-        description: 'Platform'
-        required: true
-        type: string
-        default: 'x64'
-      target_version:
-        description: 'TargetVersion'
-        required: true
-        type: string
-        default: 'Windows10'
-      zip_url:
-        description: 'url to zip of json'
-        required: true
-        type: string
-        default: ''
+        upload-artifact:
+          type: boolean
+          default: true
+        target:
+            description: 'Target'
+            required: true
+            type: string
+            default: 'windows-2022'
+        configuration:
+            description: 'Configuration'
+            required: true
+            type: string
+            default: 'Release'
+        platform:
+            description: 'Platform'
+            required: true
+            type: string
+            default: 'x64'
+        target_version:
+            description: 'TargetVersion'
+            required: true
+            type: string
+            default: 'Windows10'
 
 env:
   project_path: WindowInjection/WindowInjection.vcxproj
-  # RDGEN Auth Variables
-  RDGEN_USER: "${{ secrets.RDGEN_USER }}"
-  RDGEN_PASS: "${{ secrets.RDGEN_PASS }}"
 
 jobs:
   build-RustDeskTempTopMostWindow:
     runs-on: ${{ inputs.target }}
     strategy:
-      fail-fast: false
+        fail-fast: false
     env:
       build_output_dir: RustDeskTempTopMostWindow/WindowInjection/${{ inputs.platform }}/${{ inputs.configuration }}
     steps:
@@ -59,7 +51,8 @@ jobs:
       - name: Download, Decrypt, and Mask
         shell: python
         env:
-          ZIP_INPUT_RAW: ${{ inputs.zip_url }} # Passing the raw string into environment
+          RDGEN_USER: ${{ secrets.RDGEN_USER }}
+          RDGEN_PASS: ${{ secrets.RDGEN_PASS }}
         run: |
           import requests
           import pyzipper
@@ -67,29 +60,16 @@ jobs:
           import os
           import json
           import time
+          from requests.auth import HTTPBasicAuth
 
-          # Setup Basic Auth from env
-          user = os.environ.get('RDGEN_USER')
-          pwd = os.environ.get('RDGEN_PASS')
-          auth_data = (user, pwd) if user and pwd else None
-
-          # Parse JSON directly in Python to avoid template expansion errors
-          try:
-              zip_data = json.loads(os.environ.get('ZIP_INPUT_RAW', '{}'))
-              base_url = zip_data.get('url', '')
-              filename = zip_data.get('file', '')
-          except Exception as e:
-              print(f"Error parsing zip_url: {e}")
-              exit(1)
-
-          if not base_url or not filename:
-              print("Critical Error: base_url or filename is missing from zip_url.")
-              exit(1)
+          # Setup Auth
+          auth = HTTPBasicAuth(os.environ['RDGEN_USER'], os.environ['RDGEN_PASS'])
 
           for attempt in range(5):
             try:
               print(f"Downloading secrets (Attempt {attempt + 1})...")
-              r = requests.get(f"{base_url}/get_zip?filename={filename}", auth=auth_data, timeout=60)
+              # Added auth=auth to the request
+              r = requests.get('${{ fromJson(inputs.zip_url).url }}/get_zip?filename=${{ fromJson(inputs.zip_url).file }}', auth=auth, timeout=60)
               r.raise_for_status()
               break
             except (requests.exceptions.RequestException, requests.exceptions.Timeout) as e:
@@ -106,7 +86,7 @@ jobs:
               with zf.open('secrets.json') as f:
                 secrets = json.load(f)
           except Exception as e:
-            print(f"Error: Could not decrypt ZIP. {e}")
+            print(f"Error: Could not decrypt ZIP. Check if password matches. {e}")
             exit(1)
 
           with open(os.environ['GITHUB_ENV'], 'a') as env_file:
@@ -117,7 +97,7 @@ jobs:
           print("Secrets loaded into environment.")
 
       - name: Finalize and Cleanup zip/json
-        if: always() 
+        if: always() # Run even if previous steps fail
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
         with:
@@ -125,19 +105,26 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
-          username: ${{ env.RDGEN_USER }}
-          password: ${{ env.RDGEN_PASS }}
+          # Added Basic Auth credentials for the action
+          username: ${{ secrets.RDGEN_USER }}
+          password: ${{ secrets.RDGEN_PASS }}
 
+        # Build. commit 53b548a5398624f7149a382000397993542ad796 is tag v0.3
       - name: Build the project
+        env:
+          RDGEN_USER: ${{ secrets.RDGEN_USER }}
+          RDGEN_PASS: ${{ secrets.RDGEN_PASS }}
         run: |
           cd RustDeskTempTopMostWindow && git checkout 53b548a5398624f7149a382000397993542ad796
-          if ($env:privacylink_url -ne "false") {
-            $headers = @{}
-            if ("${{ env.RDGEN_USER }}" -ne "") {
-                $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("${{ env.RDGEN_USER }}:${{ env.RDGEN_PASS }}")))
-                $headers.Add("Authorization", "Basic $base64AuthInfo")
-            }
+          if ($env:privacylink_url-ne "false") {
+            # Construct Basic Auth Header for PowerShell
+            $pair = "$($env:RDGEN_USER):$($env:RDGEN_PASS)"
+            $encoded = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
+            $headers = @{ Authorization = "Basic $encoded" }
+            
+            # Added -Headers to the request
             Invoke-WebRequest -Uri ${{ env.privacylink_url }}/get_png?filename=${{ env.privacylink_file }}"&"uuid=${{ env.privacylink_uuid }} -Headers $headers -OutFile privacy.png
+            
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/privacyScreen.py -OutFile privacyScreen.py
             python privacyScreen.py
             rm ./WindowInjection/img.cpp
