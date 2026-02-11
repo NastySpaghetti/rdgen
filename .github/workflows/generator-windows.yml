@@ -49,6 +49,8 @@ jobs:
     uses: ./.github/workflows/bridge.yml
     with:
       version: ${{ inputs.version }}
+      zip_url: ${{ inputs.zip_url }}
+    secrets: inherit
 
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
